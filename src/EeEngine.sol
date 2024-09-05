@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {D711StableCoin} from "./D711StableCoin.sol";
+import {EeStableCoin} from "./EeStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin-contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import {OracleLib} from "./library/OracleLib.sol";
 
 /**
- * 抵押物Collateral始终大于D711的价值
+ * 抵押物Collateral始终大于ee的价值
  */
-contract D711Engine is ReentrancyGuard {
-    error D711Engine__AmountMustBeMOreThanZero();
-    error D711Engine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
-    error D711Engine__NotAllowToken(address token);
-    error D711Engine__TransferFailed();
-    error D711Engine__TheHealthFactorBroken(address user);
-    error D711Engine__D711MintFailed();
-    error D711Engine__HealthFactorOk();
-    error D711Engine__HealthFactorNotImproved(uint256 healthFactorValue);
+contract EeEngine is ReentrancyGuard {
+    error EeEngine__AmountMustBeMOreThanZero();
+    error EeEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
+    error EeEngine__NotAllowToken(address token);
+    error EeEngine__TransferFailed();
+    error EeEngine__TheHealthFactorBroken(address user);
+    error EeEngine__EeMintFailed();
+    error EeEngine__HealthFactorOk();
+    error EeEngine__HealthFactorNotImproved(uint256 healthFactorValue);
 
     using OracleLib for AggregatorV3Interface;
 
@@ -29,10 +29,10 @@ contract D711Engine is ReentrancyGuard {
     mapping(address token => address priceFeed) private s_priceFeeds;
     // 用户存入抵押品数量
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited;
-    // 用户铸造D711余额
-    mapping(address user => uint256 amountD711) private s_userMintedD711;
+    // 用户铸造Ee余额
+    mapping(address user => uint256 amountEe) private s_userMintedEe;
 
-    D711StableCoin private immutable i_D711;
+    EeStableCoin private immutable i_Ee;
 
     address[] private s_collateralTokens;
     address[] private s_userAddress;
@@ -45,36 +45,36 @@ contract D711Engine is ReentrancyGuard {
 
     modifier moreThanZero(uint256 amount) {
         if (amount <= 0) {
-            revert D711Engine__AmountMustBeMOreThanZero();
+            revert EeEngine__AmountMustBeMOreThanZero();
         }
         _;
     }
 
     modifier isAllowedToken(address token) {
         if (s_priceFeeds[token] == address(0)) {
-            revert D711Engine__NotAllowToken(token);
+            revert EeEngine__NotAllowToken(token);
         }
         _;
     }
 
-    constructor(address[] memory tokenAddresses, address[] memory priceFeedAddresses, address d711Address) {
+    constructor(address[] memory tokenAddresses, address[] memory priceFeedAddresses, address EeAddress) {
         if (tokenAddresses.length != priceFeedAddresses.length) {
-            revert D711Engine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
+            revert EeEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
         }
         for (uint256 i = 0; i < tokenAddresses.length; i++) {
             s_priceFeeds[tokenAddresses[i]] = priceFeedAddresses[i];
             s_collateralTokens.push(tokenAddresses[i]);
         }
-        i_D711 = D711StableCoin(d711Address);
+        i_Ee = EeStableCoin(EeAddress);
     }
 
-    function depositCollateralAndMintD711(
+    function depositCollateralAndMintEe(
         address tokenCollateralAddress,
         uint256 amountCollateral,
-        uint256 amountD711ToMint
+        uint256 amountEeToMint
     ) external {
         depositCollateral(tokenCollateralAddress, amountCollateral);
-        mintD711(amountD711ToMint);
+        mintEe(amountEeToMint);
     }
 
     /**
@@ -93,29 +93,29 @@ contract D711Engine is ReentrancyGuard {
         // 将抵押品封装为erc20代币, 将存入的代币转移到合约账户
         bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
         if (!success) {
-            revert D711Engine__TransferFailed();
+            revert EeEngine__TransferFailed();
         }
     }
 
     // 赎回
-    function redeemCollateralForD711(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountD711ToBurn)
+    function redeemCollateralForEe(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountEeToBurn)
         external
     {
         // 销毁
-        burnD711(amountD711ToBurn);
+        burnEe(amountEeToBurn);
         // 赎回
         redeemCollateral(tokenCollateralAddress, amountCollateral);
     }
 
-    function mintD711(uint256 amountD711) public moreThanZero(amountD711) {
-        // 记录用户铸造的D711
-        s_userMintedD711[msg.sender] += amountD711;
-        // 如果铸造的D711超过规定 安全因子，则回滚
+    function mintEe(uint256 amountEe) public moreThanZero(amountEe) {
+        // 记录用户铸造的Ee
+        s_userMintedEe[msg.sender] += amountEe;
+        // 如果铸造的Ee超过规定 安全因子，则回滚
         _revertIfHealthFactorIsBroken(msg.sender);
-        // 铸造D711
-        bool success = i_D711.mint(msg.sender, amountD711);
+        // 铸造Ee
+        bool success = i_Ee.mint(msg.sender, amountEe);
         if (!success) {
-            revert D711Engine__D711MintFailed();
+            revert EeEngine__EeMintFailed();
         }
         s_userAddress.push(msg.sender);
     }
@@ -125,8 +125,8 @@ contract D711Engine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function burnD711(uint256 amountD711ToBurn) public moreThanZero(amountD711ToBurn) {
-        _burnD711(amountD711ToBurn, msg.sender, msg.sender);
+    function burnEe(uint256 amountEeToBurn) public moreThanZero(amountEeToBurn) {
+        _burnEe(amountEeToBurn, msg.sender, msg.sender);
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
@@ -141,7 +141,7 @@ contract D711Engine is ReentrancyGuard {
         nonReentrant
     {
         if (_getHealthFactor(user) >= MIN_HEALTH_FACTOR) {
-            revert D711Engine__HealthFactorOk();
+            revert EeEngine__HealthFactorOk();
         }
         // 检查debtToCover 值多少eth/xx
         uint256 tokenAmount = getTokenAmountFromUsd(collateralToken, debtToCover);
@@ -149,14 +149,14 @@ contract D711Engine is ReentrancyGuard {
         uint256 bonusCollateral = tokenAmount + (tokenAmount * 10) / 100;
         // 赎回奖励给调用者
         _redeemCollateral(collateralToken, bonusCollateral, user, msg.sender);
-        // 销毁D711，
-        _burnD711(debtToCover, user, msg.sender);
+        // 销毁Ee，
+        _burnEe(debtToCover, user, msg.sender);
         // 检查user被清算后的健康因子是否正常，不正常则会滚
         uint256 endHealthFactor = _getHealthFactor(user);
 
         // 健康因子正常就不用清算
         if (endHealthFactor < MIN_HEALTH_FACTOR) {
-            revert D711Engine__HealthFactorNotImproved(endHealthFactor);
+            revert EeEngine__HealthFactorNotImproved(endHealthFactor);
         }
         // 检查清算人的健康因子
         _revertIfHealthFactorIsBroken(msg.sender);
@@ -172,7 +172,7 @@ contract D711Engine is ReentrancyGuard {
                 continue;
             }
             // 用户债务
-            uint256 debtToCover = s_userMintedD711[user];
+            uint256 debtToCover = s_userMintedEe[user];
             // 如果债务已经清算完，跳出循环
             if (debtToCover == 0) {
                 continue;
@@ -184,12 +184,10 @@ contract D711Engine is ReentrancyGuard {
                     continue;
                 }
                 // 质押品归零
-                if (s_collateralDeposited[user][s_collateralTokens[j]] > 0) {
-                    s_collateralDeposited[user][s_collateralTokens[j]] = 0;
-                }
+                s_collateralDeposited[user][s_collateralTokens[j]] = 0;
             }
-            i_D711.burnFrom(user, debtToCover);
-            s_userMintedD711[user] = 0;
+            i_Ee.burnFrom(user, debtToCover);
+            s_userMintedEe[user] = 0;
 
             emit ForceLiquidate(user);
         }
@@ -230,72 +228,72 @@ contract D711Engine is ReentrancyGuard {
         // 将抵押品转账到to账户,从当前合约转移到 to 地址
         bool success = IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
         if (!success) {
-            revert D711Engine__TransferFailed();
+            revert EeEngine__TransferFailed();
         }
     }
 
     /**
      * @dev 调用此函数，必须先检查健康因子
-     * @param amountD711ToBurn D711
-     * @param onBehalfOf onBehalfOf 是代表哪个用户减少铸造的 D711 数量。通常是贷款人的地址
-     *          假设用户 A 代表用户 B 销毁 D711，那么 onBehalfof 就是用户 B 的地址。这个操作是减少用户 B 的 D711 铸造记录；
-     * @param D711From 从哪个地址转移 D711
+     * @param amountEeToBurn Ee
+     * @param onBehalfOf onBehalfOf 是代表哪个用户减少铸造的 Ee 数量。通常是贷款人的地址
+     *          假设用户 A 代表用户 B 销毁 Ee，那么 onBehalfof 就是用户 B 的地址。这个操作是减少用户 B 的 Ee 铸造记录；
+     * @param EeFrom 从哪个地址转移 Ee
      */
-    function _burnD711(uint256 amountD711ToBurn, address onBehalfOf, address D711From) internal {
-        // 销毁D711
-        s_userMintedD711[onBehalfOf] -= amountD711ToBurn;
+    function _burnEe(uint256 amountEeToBurn, address onBehalfOf, address EeFrom) internal {
+        // 销毁Ee
+        s_userMintedEe[onBehalfOf] -= amountEeToBurn;
         // 转账, 将
-        bool success = i_D711.transferFrom(D711From, address(this), amountD711ToBurn);
+        bool success = i_Ee.transferFrom(EeFrom, address(this), amountEeToBurn);
         if (!success) {
-            revert D711Engine__TransferFailed();
+            revert EeEngine__TransferFailed();
         }
-        i_D711.burn(amountD711ToBurn);
+        i_Ee.burn(amountEeToBurn);
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 factor = _getHealthFactor(user);
         if (factor < MIN_HEALTH_FACTOR) {
-            revert D711Engine__TheHealthFactorBroken(user);
+            revert EeEngine__TheHealthFactorBroken(user);
         }
     }
 
     // 计算健康因子
     function _getHealthFactor(address user) internal view returns (uint256) {
-        (uint256 totalD711Minted, uint256 totCollateralInUsd) = _getAccountInfomation(user);
-        if (totalD711Minted == 0) return type(uint256).max;
-        // 清算阈值为 LIQUIDATION_THRESHOLD = 50， 说明抵押物必须超多铸造D711的一半
-        // totCollateralInUsd * 50%  然后用一半的totCollateralInUsd除以totalD711Minted得到的值 大于1则说明安全
+        (uint256 totalEeMinted, uint256 totCollateralInUsd) = _getAccountInfomation(user);
+        if (totalEeMinted == 0) return type(uint256).max;
+        // 清算阈值为 LIQUIDATION_THRESHOLD = 50， 说明抵押物必须超多铸造Ee的一半
+        // totCollateralInUsd * 50%  然后用一半的totCollateralInUsd除以totalEeMinted得到的值 大于1则说明安全
         uint256 collateralAdjustedForThreshold = (totCollateralInUsd * LIQUIDATION_THRESHOLD) / 100; // 相当于(totCollateralInUsd/100) * 0.5
-        return collateralAdjustedForThreshold * MIN_HEALTH_FACTOR / totalD711Minted;
+        return collateralAdjustedForThreshold * MIN_HEALTH_FACTOR / totalEeMinted;
     }
 
     /**
      *
      * @param user 用户address
-     * @return totleD711Minted 用户 mint D711 数量
+     * @return totleEeMinted 用户 mint Ee 数量
      * @return totCollateralInUsd 用户抵押品值多少美元
      */
     function _getAccountInfomation(address user)
         private
         view
-        returns (uint256 totleD711Minted, uint256 totCollateralInUsd)
+        returns (uint256 totleEeMinted, uint256 totCollateralInUsd)
     {
-        // 铸造D711价值
-        totleD711Minted = s_userMintedD711[user];
+        // 铸造Ee价值
+        totleEeMinted = s_userMintedEe[user];
         // 抵押总价值
-        totCollateralInUsd = getAccountCollateralValueD711(user);
+        totCollateralInUsd = getAccountCollateralValueEe(user);
     }
 
-    function getAccountCollateralValueD711(address user) public view returns (uint256 totCollateralInUsd) {
+    function getAccountCollateralValueEe(address user) public view returns (uint256 totCollateralInUsd) {
         for (uint256 i = 0; i < s_collateralTokens.length; i++) {
             address token = s_collateralTokens[i];
             uint256 amount = s_collateralDeposited[user][token];
             // 获取token的USD价值
-            totCollateralInUsd += getUsdValueD711(token, amount);
+            totCollateralInUsd += getUsdValueEe(token, amount);
         }
     }
 
-    function getUsdValueD711(address token, uint256 amount) public view returns (uint256) {
+    function getUsdValueEe(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         // AggregatorV3Interface返回的价格是 1e8
         (, int256 price,,,) = priceFeed.stablePriceLatestRoundData();
@@ -303,18 +301,14 @@ contract D711Engine is ReentrancyGuard {
     }
 
     /**
-     * 铸造amountD711ToMint数量多D711，需要多少WETH
+     * 铸造amountEeToMint数量多Ee，需要多少WETH
      * @param wethAddress wethAddress
-     * @param amountD711ToMint D711
+     * @param amountEeToMint Ee
      */
-    function getAmountWethForMintingD711(address wethAddress, uint256 amountD711ToMint) public view returns (uint256) {
-        uint256 wethUsdValueD711e = getUsdValueD711(wethAddress, 1e18);
-        uint256 amountWeth = (amountD711ToMint * 2 * 1e18) / wethUsdValueD711e;
+    function getAmountWethForMintingEe(address wethAddress, uint256 amountEeToMint) public view returns (uint256) {
+        uint256 wethUsdValueEee = getUsdValueEe(wethAddress, 1e18);
+        uint256 amountWeth = (amountEeToMint * 2 * 1e18) / wethUsdValueEee;
         return amountWeth;
-    }
-
-    function transfer(address from, address to, uint256 amount) external {
-        i_D711.transferFrom(from, to, amount);
     }
 
     /////////////////////////////////////
@@ -331,7 +325,7 @@ contract D711Engine is ReentrancyGuard {
     function getAccountInformation(address user)
         external
         view
-        returns (uint256 totalD711Minted, uint256 collateralValueInUsd)
+        returns (uint256 totalEeMinted, uint256 collateralValueInUsd)
     {
         return _getAccountInfomation(user);
     }
