@@ -75,7 +75,7 @@ contract GameManagement is Ownable {
         emit EeWithdraw(msg.sender, amountEe);
     }
 
-    function startGame(uint256 roomId, address[] memory userAddress, uint256 minQualifiedAmount)
+    function startGame(uint256 roomId, address[] calldata userAddress, uint256 minQualifiedAmount)
         external
         onlyOwner
         onlyWhenNotStarted(roomId)
@@ -90,18 +90,21 @@ contract GameManagement is Ownable {
         record.prizePool = 0;
         record.minQualifiedAmount = minQualifiedAmount;
 
-        for (uint256 i = 0; i < userAddress.length; i++) {
+        for (uint256 i = 0; i < userAddress.length;) {
             address userAddr = userAddress[i];
             require(s_playerEeAmount[userAddr] >= minQualifiedAmount, "Insufficient balance");
             record.playerAddress.push(userAddr);
             // record.betAmount.push(0);
             // 内存中的数组是固定长度的，不能像在 storage 中那样使用 .push() 方法动态扩展
             // players.push(plarer);
+            unchecked {
+                ++i;
+            }
         }
         emit GameStarted(roomId);
     }
 
-    function endGame(uint256 roomId, address winner, address[] memory userAddress, uint256[] memory betAmount)
+    function endGame(uint256 roomId, address winner, address[] calldata userAddress, uint256[] calldata betAmount)
         external
         onlyOwner
         onlyWhenStarted(roomId)
@@ -113,20 +116,26 @@ contract GameManagement is Ownable {
         require(prizeAmount > 0, "Prize has been distributed");
         record.isEnded = true;
         record.winner = winner;
-        for (uint256 i = 0; i < userAddress.length; i++) {
+        for (uint256 i = 0; i < userAddress.length;) {
             address playerAddr = userAddress[i];
             uint256 playerBet = betAmount[i];
             // 更新玩家的下注金额
-            for (uint256 j = 0; j < record.playerAddress.length; j++) {
+            for (uint256 j = 0; j < record.playerAddress.length;) {
                 if (record.playerAddress[j] == playerAddr) {
                     record.betAmounts[j] = playerBet;
                     record.prizePool += playerBet;
                     break;
                 }
+                unchecked {
+                    ++j;
+                }
+            }
+            unchecked {
+                ++i;
             }
         }
         // 发放奖励
-        for (uint256 i = 0; i < record.playerAddress.length; i++) {
+        for (uint256 i = 0; i < record.playerAddress.length;) {
             address playerAddr = record.playerAddress[i];
             uint256 playerBet = record.betAmounts[i];
             if (playerAddr != record.winner) {
@@ -137,6 +146,9 @@ contract GameManagement is Ownable {
                     s_playerEeAmount[record.winner] += s_playerEeAmount[playerAddr];
                     s_playerEeAmount[playerAddr] = 0;
                 }
+            }
+            unchecked {
+                ++i;
             }
         }
         // 更新游戏记录
